@@ -7,7 +7,7 @@ unsigned long lastTemperatureSent = 0;
 HomieNode temperatureNode("temperature", "temperature");
 
 void setupHandler() {
-  Homie.setNodeProperty(temperatureNode, "unit", "c", true);
+  Homie.setNodeProperty(temperatureNode, "unit").setRetained(true).send("c");
 }
 
 void loopHandler() {
@@ -16,11 +16,8 @@ void loopHandler() {
     Serial.print("Temperature: ");
     Serial.print(temperature);
     Serial.println(" °C");
-    if (Homie.setNodeProperty(temperatureNode, "degrees", String(temperature), true)) {
-      lastTemperatureSent = millis();
-    } else {
-      Serial.println("Temperature sending failed");
-    }
+    Homie.setNodeProperty(temperatureNode, "degrees").send(String(temperature));
+    lastTemperatureSent = millis();
   }
 }
 
@@ -29,8 +26,11 @@ void setup() {
   Serial.println();
   Serial.println();
   Homie_setFirmware("awesome-temperature", "1.0.0");
-  Homie.setSetupFunction(setupHandler);
-  Homie.setLoopFunction(loopHandler);
+  Homie.setSetupFunction(setupHandler).setLoopFunction(loopHandler);
+
+  temperatureNode.advertise("unit");
+  temperatureNode.advertise("degrees");
+
   Homie.setup();
 }
 

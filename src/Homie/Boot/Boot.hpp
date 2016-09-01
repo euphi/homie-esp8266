@@ -10,15 +10,17 @@
 #include "../Helpers.hpp"
 
 namespace HomieInternals {
-  class Boot {
-    public:
-      explicit Boot(const char* name);
-      virtual void setup();
-      virtual void loop();
+class Boot {
+ public:
+  explicit Boot(const char* name);
+  virtual void setup();
+  virtual void loop();
+  virtual void prepareForSleep();
 
-      void attachInterface(Interface* interface);
-    protected:
-      Interface* _interface;
-      const char* _name;
-  };
-}
+  void attachInterface(Interface* interface);
+
+ protected:
+  Interface* _interface;
+  const char* _name;
+};
+}  // namespace HomieInternals

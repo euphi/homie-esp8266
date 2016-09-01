@@ -1,53 +1,43 @@
 #include <Homie.h>
 
-const uint8_t NUMBER_OF_LED = 4;
-const uint8_t LED_PINS[NUMBER_OF_LED] = { 16, 5, 4, 0 };
+const unsigned char NUMBER_OF_LED = 4;
+const unsigned char LED_PINS[NUMBER_OF_LED] = { 16, 5, 4, 0 };
 
-bool stripHandler(String, String); // forward declaration (needed for Arduino <= 1.6.8)
-HomieNode stripNode("ledstrip", "ledstrip", stripHandler);
+HomieNode stripNode("strip", "strip");
 
-bool stripHandler(String property, String value) {
-  for (int i = 0; i < property.length(); i++) {
-    if (!isDigit(property.charAt(i))) {
-      return false;
-    }
-  }
+bool stripLedHandler(HomieRange range, String value) {
+  if (!range.isRange) return false;  // if it's not a range
 
-  int ledIndex = property.toInt();
-  if (ledIndex < 0 || ledIndex > NUMBER_OF_LED - 1) {
-    return false;
-  }
+  if (range.index < 1 || range.index > NUMBER_OF_LED) return false;  // if it's not a valid number
 
-  if (value == "true") {
-    digitalWrite(LED_PINS[ledIndex], HIGH);
-    Homie.setNodeProperty(stripNode, String(ledIndex), "true"); // Update the state of the led
-    Serial.print("Led ");
-    Serial.print(ledIndex);
-    Serial.println(" is on");
-  } else if (value == "false") {
-    digitalWrite(LED_PINS[ledIndex], LOW);
-    Homie.setNodeProperty(stripNode, String(ledIndex), "false");
-    Serial.print("Led ");
-    Serial.print(ledIndex);
-    Serial.println(" is off");
-  } else {
-    return false;
-  }
+  if (value != "on" && value != "off") return false;  // if the value is not valid
+
+  bool switchOn = value == "on";
+
+  digitalWrite(LED_PINS[range.index - 1], switchOn ? HIGH : LOW);
+  Homie.setNodeProperty(stripNode, "led").setRange(range).send(value);  // Update the state of the led
+  Serial.print("Led ");
+  Serial.print(range.index);
+  Serial.print(" is ");
+  Serial.println(value);
 
   return true;
 }
 
 void setup() {
-  Serial.begin(115200);
-  Serial.println();
-  Serial.println();
   for (int i = 0; i < NUMBER_OF_LED; i++) {
-    pinMode(LED_PINS[i], INPUT);
+    pinMode(LED_PINS[i], OUTPUT);
     digitalWrite(LED_PINS[i], LOW);
   }
 
+  Serial.begin(115200);
+  Serial.println();
+  Serial.println();
+
   Homie_setFirmware("awesome-ledstrip", "1.0.0");
-  stripNode.subscribeToAll();
+
+  stripNode.advertiseRange("led", 1, NUMBER_OF_LED).settable(stripLedHandler);
+
   Homie.setup();
 }
 
