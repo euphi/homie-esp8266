@@ -48,6 +48,11 @@ ConfigValidationResult Validation::_validateConfigRoot(const JsonObject& object)
     return result;
   }
 
+  if (object.containsKey(F("device_stats_interval")) && !object[F("device_stats_interval")].is<uint16_t>()) {
+    result.reason = F("device_stats_interval is not an integer");
+    return result;
+  }
+
   result.valid = true;
   return result;
 }
@@ -74,6 +79,94 @@ ConfigValidationResult Validation::_validateConfigWifi(const JsonObject& object)
   }
   if (object["wifi"]["password"] && strlen(object["wifi"]["password"]) + 1 > MAX_WIFI_PASSWORD_LENGTH) {
     result.reason = F("wifi.password is too long");
+    return result;
+  }
+  // by benzino
+  if (object["wifi"].as<JsonObject&>().containsKey("bssid") && !object["wifi"]["bssid"].is<const char*>()) {
+    result.reason = F("wifi.bssid is not a string");
+    return result;
+  }
+  if ((object["wifi"].as<JsonObject&>().containsKey("bssid") && !object["wifi"].as<JsonObject&>().containsKey("channel")) ||
+    (!object["wifi"].as<JsonObject&>().containsKey("bssid") && object["wifi"].as<JsonObject&>().containsKey("channel"))) {
+    result.reason = F("wifi.channel_bssid channel and BSSID is required");
+    return result;
+  }
+  if (object["wifi"].as<JsonObject&>().containsKey("bssid") && !Helpers::validateMacAddress(object["wifi"].as<JsonObject&>().get<const char*>("bssid"))) {
+    result.reason = F("wifi.bssid is not valid mac");
+    return result;
+  }
+  if (object["wifi"].as<JsonObject&>().containsKey("channel") && !object["wifi"]["channel"].is<uint16_t>()) {
+    result.reason = F("wifi.channel is not an integer");
+    return result;
+  }
+  if (object["wifi"].as<JsonObject&>().containsKey("ip") && !object["wifi"]["ip"].is<const char*>()) {
+    result.reason = F("wifi.ip is not a string");
+    return result;
+  }
+  if (object["wifi"]["ip"] && strlen(object["wifi"]["ip"]) + 1 > MAX_IP_STRING_LENGTH) {
+    result.reason = F("wifi.ip is too long");
+    return result;
+  }
+  if (object["wifi"]["ip"] && !Helpers::validateIP(object["wifi"].as<JsonObject&>().get<const char*>("ip"))) {
+    result.reason = F("wifi.ip is not valid ip address");
+    return result;
+  }
+  if (object["wifi"].as<JsonObject&>().containsKey("mask") && !object["wifi"]["mask"].is<const char*>()) {
+    result.reason = F("wifi.mask is not a string");
+    return result;
+  }
+  if (object["wifi"]["mask"] && strlen(object["wifi"]["mask"]) + 1 > MAX_IP_STRING_LENGTH) {
+    result.reason = F("wifi.mask is too long");
+    return result;
+  }
+  if (object["wifi"]["mask"] && !Helpers::validateIP(object["wifi"].as<JsonObject&>().get<const char*>("mask"))) {
+    result.reason = F("wifi.mask is not valid mask");
+    return result;
+  }
+  if (object["wifi"].as<JsonObject&>().containsKey("gw") && !object["wifi"]["gw"].is<const char*>()) {
+    result.reason = F("wifi.gw is not a string");
+    return result;
+  }
+  if (object["wifi"]["gw"] && strlen(object["wifi"]["gw"]) + 1 > MAX_IP_STRING_LENGTH) {
+    result.reason = F("wifi.gw is too long");
+    return result;
+  }
+  if (object["wifi"]["gw"] && !Helpers::validateIP(object["wifi"].as<JsonObject&>().get<const char*>("gw"))) {
+    result.reason = F("wifi.gw is not valid gateway address");
+    return result;
+  }
+  if ((object["wifi"].as<JsonObject&>().containsKey("ip") && (!object["wifi"].as<JsonObject&>().containsKey("mask") || !object["wifi"].as<JsonObject&>().containsKey("gw"))) ||
+    (object["wifi"].as<JsonObject&>().containsKey("gw") && (!object["wifi"].as<JsonObject&>().containsKey("mask") || !object["wifi"].as<JsonObject&>().containsKey("ip"))) ||
+    (object["wifi"].as<JsonObject&>().containsKey("mask") && (!object["wifi"].as<JsonObject&>().containsKey("ip") || !object["wifi"].as<JsonObject&>().containsKey("gw")))) {
+    result.reason = F("wifi.staticip ip, gw and mask is required");
+    return result;
+  }
+  if (object["wifi"].as<JsonObject&>().containsKey("dns1") && !object["wifi"]["dns1"].is<const char*>()) {
+    result.reason = F("wifi.dns1 is not a string");
+    return result;
+  }
+  if (object["wifi"]["dns1"] && strlen(object["wifi"]["dns1"]) + 1 > MAX_IP_STRING_LENGTH) {
+    result.reason = F("wifi.dns1 is too long");
+    return result;
+  }
+  if (object["wifi"]["dns1"] && !Helpers::validateIP(object["wifi"].as<JsonObject&>().get<const char*>("dns1"))) {
+    result.reason = F("wifi.dns1 is not valid dns address");
+    return result;
+  }
+  if (object["wifi"].as<JsonObject&>().containsKey("dns2") && !object["wifi"].as<JsonObject&>().containsKey("dns1")) {
+    result.reason = F("wifi.dns2 no dns1 defined");
+    return result;
+  }
+  if (object["wifi"].as<JsonObject&>().containsKey("dns2") && !object["wifi"]["dns2"].is<const char*>()) {
+    result.reason = F("wifi.dns2 is not a string");
+    return result;
+  }
+  if (object["wifi"]["dns2"] && strlen(object["wifi"]["dns2"]) + 1 > MAX_IP_STRING_LENGTH) {
+    result.reason = F("wifi.dns2 is too long");
+    return result;
+  }
+  if (object["wifi"]["dns2"] && !Helpers::validateIP(object["wifi"].as<JsonObject&>().get<const char*>("dns2"))) {
+    result.reason = F("wifi.dns2 is not valid dns address");
     return result;
   }
 
@@ -183,23 +276,44 @@ ConfigValidationResult Validation::_validateConfigSettings(const JsonObject& obj
     settingsObject = &(object["settings"].as<JsonObject&>());
   }
 
+  if (settingsObject->size() > MAX_CONFIG_SETTING_SIZE) {//max settings here and in isettings
+    result.reason = F("settings contains more elements than the set limit");
+    return result;
+  }
+
   for (IHomieSetting* iSetting : IHomieSetting::settings) {
+    enum class Issue {
+      Type,
+      Validator,
+      Missing
+    };
+    auto setReason = [&result, &iSetting](Issue issue) {
+      switch (issue) {
+      case Issue::Type:
+        result.reason = String(iSetting->getName()) + F(" setting is not a ") + String(iSetting->getType());
+        break;
+      case Issue::Validator:
+        result.reason = String(iSetting->getName()) + F(" setting does not pass the validator function");
+        break;
+      case Issue::Missing:
+        result.reason = String(iSetting->getName()) + F(" setting is missing");
+        break;
+      }
+    };
+
     if (iSetting->isBool()) {
       HomieSetting<bool>* setting = static_cast<HomieSetting<bool>*>(iSetting);
 
       if (settingsObject->containsKey(setting->getName())) {
         if (!(*settingsObject)[setting->getName()].is<bool>()) {
-          result.reason = String(setting->getName());
-          result.reason.concat(F(" setting is not a boolean"));
+          setReason(Issue::Type);
           return result;
         } else if (!setting->validate((*settingsObject)[setting->getName()].as<bool>())) {
-          result.reason = String(setting->getName());
-          result.reason.concat(F(" setting does not pass the validator function"));
+          setReason(Issue::Validator);
           return result;
         }
       } else if (setting->isRequired()) {
-        result.reason = String(setting->getName());
-        result.reason.concat(F(" setting is missing"));
+        setReason(Issue::Missing);
         return result;
       }
     } else if (iSetting->isLong()) {
@@ -207,17 +321,14 @@ ConfigValidationResult Validation::_validateConfigSettings(const JsonObject& obj
 
       if (settingsObject->containsKey(setting->getName())) {
         if (!(*settingsObject)[setting->getName()].is<long>()) {
-          result.reason = String(setting->getName());
-          result.reason.concat(F(" setting is not a long"));
+          setReason(Issue::Type);
           return result;
         } else if (!setting->validate((*settingsObject)[setting->getName()].as<long>())) {
-          result.reason = String(setting->getName());
-          result.reason.concat(F(" setting does not pass the validator function"));
+          setReason(Issue::Validator);
           return result;
         }
       } else if (setting->isRequired()) {
-        result.reason = String(setting->getName());
-        result.reason.concat(F(" setting is missing"));
+        setReason(Issue::Missing);
         return result;
       }
     } else if (iSetting->isDouble()) {
@@ -225,17 +336,14 @@ ConfigValidationResult Validation::_validateConfigSettings(const JsonObject& obj
 
       if (settingsObject->containsKey(setting->getName())) {
         if (!(*settingsObject)[setting->getName()].is<double>()) {
-          result.reason = String(setting->getName());
-          result.reason.concat(F(" setting is not a double"));
+          setReason(Issue::Type);
           return result;
         } else if (!setting->validate((*settingsObject)[setting->getName()].as<double>())) {
-          result.reason = String(setting->getName());
-          result.reason.concat((" setting does not pass the validator function"));
+          setReason(Issue::Validator);
           return result;
         }
       } else if (setting->isRequired()) {
-        result.reason = String(setting->getName());
-        result.reason.concat(F(" setting is missing"));
+        setReason(Issue::Missing);
         return result;
       }
     } else if (iSetting->isConstChar()) {
@@ -243,17 +351,14 @@ ConfigValidationResult Validation::_validateConfigSettings(const JsonObject& obj
 
       if (settingsObject->containsKey(setting->getName())) {
         if (!(*settingsObject)[setting->getName()].is<const char*>()) {
-          result.reason = String(setting->getName());
-          result.reason.concat(F(" setting is not a const char*"));
+          setReason(Issue::Type);
           return result;
         } else if (!setting->validate((*settingsObject)[setting->getName()].as<const char*>())) {
-          result.reason = String(setting->getName());
-          result.reason.concat(F(" setting does not pass the validator function"));
+          setReason(Issue::Validator);
           return result;
         }
       } else if (setting->isRequired()) {
-        result.reason = String(setting->getName());
-        result.reason.concat(F(" setting is missing"));
+        setReason(Issue::Missing);
         return result;
       }
     }
@@ -262,3 +367,23 @@ ConfigValidationResult Validation::_validateConfigSettings(const JsonObject& obj
   result.valid = true;
   return result;
 }
+
+// bool Validation::_validateConfigWifiBssid(const char *mac) {
+//   int i = 0;
+//   int s = 0;
+//   while (*mac) {
+//    if (isxdigit(*mac)) {
+//       i++;
+//    }
+//    else if (*mac == ':' || *mac == '-') {
+//       if (i == 0 || i / 2 - 1 != s)
+//         break;
+//       ++s;
+//    }
+//    else {
+//        s = -1;
+//    }
+//    ++mac;
+//   }
+//   return (i == MAX_MAC_STRING_LENGTH && s == 5);
+// }

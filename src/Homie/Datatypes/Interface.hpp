@@ -18,6 +18,7 @@ class Blinker;
 class Config;
 class SendingPromise;
 class HomieClass;
+
 class InterfaceData {
   friend HomieClass;
 
@@ -51,9 +52,10 @@ class InterfaceData {
     uint8_t triggerPin;
     uint8_t triggerState;
     uint16_t triggerTime;
-    bool flaggedBySketch;
+    bool resetFlag;
   } reset;
 
+  bool disable;
   bool flaggedForSleep;
 
   GlobalInputHandler globalInputHandler;
@@ -64,7 +66,7 @@ class InterfaceData {
 
   /***** Runtime data *****/
   HomieEvent event;
-  bool connected;
+  bool ready;
   Logger& getLogger() { return *_logger; }
   Blinker& getBlinker() { return *_blinker; }
   Config& getConfig() { return *_config; }

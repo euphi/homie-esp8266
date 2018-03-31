@@ -9,7 +9,7 @@ PropertyInterface::PropertyInterface()
 : _property(nullptr) {
 }
 
-void PropertyInterface::settable(PropertyInputHandler inputHandler) {
+void PropertyInterface::settable(const PropertyInputHandler& inputHandler) {
   _property->settable(inputHandler);
 }
 
@@ -18,27 +18,24 @@ PropertyInterface& PropertyInterface::setProperty(Property* property) {
   return *this;
 }
 
-HomieNode::HomieNode(const char* id, const char* type, NodeInputHandler inputHandler)
+HomieNode::HomieNode(const char* id, const char* type, const NodeInputHandler& inputHandler)
 : _id(id)
 , _type(type)
 , _properties()
+, runLoopDisconnected(false)
 , _inputHandler(inputHandler) {
   if (strlen(id) + 1 > MAX_NODE_ID_LENGTH || strlen(type) + 1 > MAX_NODE_TYPE_LENGTH) {
-    Interface::get().getLogger() << F("✖ HomieNode(): either the id or type string is too long") << endl;
-    Serial.flush();
-    abort();
+    Helpers::abort(F("✖ HomieNode(): either the id or type string is too long"));
+    return;  // never reached, here for clarity
   }
   Homie._checkBeforeSetup(F("HomieNode::HomieNode"));
 
   HomieNode::nodes.push_back(this);
 }
 
-HomieNode::~HomieNode()
-{
-    Interface::get().getLogger() << F("✖ ~HomieNode(): Destruction of HomieNode object not possible") << endl;
-    Interface::get().getLogger() << F("  Hint: Don't create HomieNode objects as a local variable (e.g. in setup())") << endl;
-    Serial.flush();
-    abort();
+HomieNode::~HomieNode() {
+    Helpers::abort(F("✖✖ ~HomieNode(): Destruction of HomieNode object not possible\n  Hint: Don't create HomieNode objects as a local variable (e.g. in setup())"));
+    return;  // never reached, here for clarity
 }
 
 PropertyInterface& HomieNode::advertise(const char* property) {
