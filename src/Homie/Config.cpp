@@ -3,9 +3,9 @@
 using namespace HomieInternals;
 
 Config::Config()
-: _configStruct()
-, _spiffsBegan(false)
-, _valid(false) {
+  : _configStruct()
+  , _spiffsBegan(false)
+  , _valid(false) {
 }
 
 bool Config::_spiffsBegin() {
@@ -67,6 +67,40 @@ bool Config::load() {
   if (parsedJson.containsKey("device_id")) {
     reqDeviceId = parsedJson["device_id"];
   }
+  uint16_t regDeviceStatsInterval = STATS_SEND_INTERVAL_SEC; //device_stats_interval
+  if (parsedJson.containsKey(F("device_stats_interval"))) {
+    regDeviceStatsInterval = parsedJson[F("device_stats_interval")];
+  }
+
+  const char* reqWifiBssid = "";
+  if (parsedJson["wifi"].as<JsonObject&>().containsKey("bssid")) {
+    reqWifiBssid = parsedJson["wifi"]["bssid"];
+  }
+  uint16_t reqWifiChannel = 0;
+  if (parsedJson["wifi"].as<JsonObject&>().containsKey("channel")) {
+    reqWifiChannel = parsedJson["wifi"]["channel"];
+  }
+  const char* reqWifiIp = "";
+  if (parsedJson["wifi"].as<JsonObject&>().containsKey("ip")) {
+    reqWifiIp = parsedJson["wifi"]["ip"];
+  }
+  const char* reqWifiMask = "";
+  if (parsedJson["wifi"].as<JsonObject&>().containsKey("mask")) {
+    reqWifiMask = parsedJson["wifi"]["mask"];
+  }
+  const char* reqWifiGw = "";
+  if (parsedJson["wifi"].as<JsonObject&>().containsKey("gw")) {
+    reqWifiGw = parsedJson["wifi"]["gw"];
+  }
+  const char* reqWifiDns1 = "";
+  if (parsedJson["wifi"].as<JsonObject&>().containsKey("dns1")) {
+    reqWifiDns1 = parsedJson["wifi"]["dns1"];
+  }
+  const char* reqWifiDns2 = "";
+  if (parsedJson["wifi"].as<JsonObject&>().containsKey("dns2")) {
+    reqWifiDns2 = parsedJson["wifi"]["dns2"];
+  }
+
   uint16_t reqMqttPort = DEFAULT_MQTT_PORT;
   if (parsedJson["mqtt"].as<JsonObject&>().containsKey("port")) {
     reqMqttPort = parsedJson["mqtt"]["port"];
@@ -94,9 +128,17 @@ bool Config::load() {
   }
 
   strlcpy(_configStruct.name, reqName, MAX_FRIENDLY_NAME_LENGTH);
+  strlcpy(_configStruct.deviceId, reqDeviceId, MAX_DEVICE_ID_LENGTH);
+  _configStruct.deviceStatsInterval = regDeviceStatsInterval;
   strlcpy(_configStruct.wifi.ssid, reqWifiSsid, MAX_WIFI_SSID_LENGTH);
   if (reqWifiPassword) strlcpy(_configStruct.wifi.password, reqWifiPassword, MAX_WIFI_PASSWORD_LENGTH);
-  strlcpy(_configStruct.deviceId, reqDeviceId, MAX_DEVICE_ID_LENGTH);
+  strlcpy(_configStruct.wifi.bssid, reqWifiBssid, MAX_MAC_STRING_LENGTH + 6);
+  _configStruct.wifi.channel = reqWifiChannel;
+  strlcpy(_configStruct.wifi.ip, reqWifiIp, MAX_IP_STRING_LENGTH);
+  strlcpy(_configStruct.wifi.gw, reqWifiGw, MAX_IP_STRING_LENGTH);
+  strlcpy(_configStruct.wifi.mask, reqWifiMask, MAX_IP_STRING_LENGTH);
+  strlcpy(_configStruct.wifi.dns1, reqWifiDns1, MAX_IP_STRING_LENGTH);
+  strlcpy(_configStruct.wifi.dns2, reqWifiDns2, MAX_IP_STRING_LENGTH);
   strlcpy(_configStruct.mqtt.server.host, reqMqttHost, MAX_HOSTNAME_LENGTH);
   _configStruct.mqtt.server.port = reqMqttPort;
   strlcpy(_configStruct.mqtt.baseTopic, reqMqttBaseTopic, MAX_MQTT_BASE_TOPIC_LENGTH);
@@ -217,60 +259,62 @@ void Config::write(const JsonObject& config) {
 }
 
 bool Config::patch(const char* patch) {
-    if (!_spiffsBegin()) { return false; }
+  if (!_spiffsBegin()) { return false; }
 
-    StaticJsonBuffer<MAX_JSON_CONFIG_ARDUINOJSON_BUFFER_SIZE> patchJsonBuffer;
-    JsonObject& patchObject = patchJsonBuffer.parseObject(patch);
+  StaticJsonBuffer<MAX_JSON_CONFIG_ARDUINOJSON_BUFFER_SIZE> patchJsonBuffer;
+  JsonObject& patchObject = patchJsonBuffer.parseObject(patch);
 
-    if (!patchObject.success()) {
-      Interface::get().getLogger() << F("✖ Invalid or too big JSON") << endl;
-      return false;
-    }
+  if (!patchObject.success()) {
+    Interface::get().getLogger() << F("✖ Invalid or too big JSON") << endl;
+    return false;
+  }
 
-    File configFile = SPIFFS.open(CONFIG_FILE_PATH, "r");
-    if (!configFile) {
-      Interface::get().getLogger() << F("✖ Cannot open config file") << endl;
-      return false;
-    }
+  File configFile = SPIFFS.open(CONFIG_FILE_PATH, "r");
+  if (!configFile) {
+    Interface::get().getLogger() << F("✖ Cannot open config file") << endl;
+    return false;
+  }
 
-    size_t configSize = configFile.size();
+  size_t configSize = configFile.size();
 
-    char configJson[MAX_JSON_CONFIG_FILE_SIZE];
-    configFile.readBytes(configJson, configSize);
-    configFile.close();
-    configJson[configSize] = '\0';
+  char configJson[MAX_JSON_CONFIG_FILE_SIZE];
+  configFile.readBytes(configJson, configSize);
+  configFile.close();
+  configJson[configSize] = '\0';
 
-    StaticJsonBuffer<MAX_JSON_CONFIG_ARDUINOJSON_BUFFER_SIZE> configJsonBuffer;
-    JsonObject& configObject = configJsonBuffer.parseObject(configJson);
+  StaticJsonBuffer<MAX_JSON_CONFIG_ARDUINOJSON_BUFFER_SIZE> configJsonBuffer;
+  JsonObject& configObject = configJsonBuffer.parseObject(configJson);
 
-    for (JsonObject::iterator it = patchObject.begin(); it != patchObject.end(); ++it) {
-      if (patchObject[it->key].is<JsonObject&>()) {
-        JsonObject& subObject = patchObject[it->key].as<JsonObject&>();
-        for (JsonObject::iterator it2 = subObject.begin(); it2 != subObject.end(); ++it2) {
-          if (!configObject.containsKey(it->key) || !configObject[it->key].is<JsonObject&>()) {
-            String error = "✖ Config does not contain a ";
-            error.concat(it->key);
-            error.concat(" object");
-            Interface::get().getLogger() << error << endl;
-            return false;
-          }
-          JsonObject& subConfigObject = configObject[it->key].as<JsonObject&>();
-          subConfigObject[it2->key] = it2->value;
+  // To do alow object that dont currently exist to be added like settings.
+  // if settings wasnt there origionally then it should be allowed to be added by incremental.
+  for (JsonObject::iterator it = patchObject.begin(); it != patchObject.end(); ++it) {
+    if (patchObject[it->key].is<JsonObject&>()) {
+      JsonObject& subObject = patchObject[it->key].as<JsonObject&>();
+      for (JsonObject::iterator it2 = subObject.begin(); it2 != subObject.end(); ++it2) {
+        if (!configObject.containsKey(it->key) || !configObject[it->key].is<JsonObject&>()) {
+          String error = "✖ Config does not contain a ";
+          error.concat(it->key);
+          error.concat(" object");
+          Interface::get().getLogger() << error << endl;
+          return false;
         }
-      } else {
-        configObject[it->key] = it->value;
+        JsonObject& subConfigObject = configObject[it->key].as<JsonObject&>();
+        subConfigObject[it2->key] = it2->value;
       }
+    } else {
+      configObject[it->key] = it->value;
     }
+  }
 
-    ConfigValidationResult configValidationResult = Validation::validateConfig(configObject);
-    if (!configValidationResult.valid) {
-      Interface::get().getLogger() << F("✖ Config file is not valid, reason: ") << configValidationResult.reason << endl;
-      return false;
-    }
+  ConfigValidationResult configValidationResult = Validation::validateConfig(configObject);
+  if (!configValidationResult.valid) {
+    Interface::get().getLogger() << F("✖ Config file is not valid, reason: ") << configValidationResult.reason << endl;
+    return false;
+  }
 
-    write(configObject);
+  write(configObject);
 
-    return true;
+  return true;
 }
 
 bool Config::isValid() const {
@@ -282,11 +326,16 @@ void Config::log() const {
   Interface::get().getLogger() << F("  • Hardware device ID: ") << DeviceId::get() << endl;
   Interface::get().getLogger() << F("  • Device ID: ") << _configStruct.deviceId << endl;
   Interface::get().getLogger() << F("  • Name: ") << _configStruct.name << endl;
+  Interface::get().getLogger() << F("  • Device Stats Interval: ") << _configStruct.deviceStatsInterval << F(" sec") << endl;
 
   Interface::get().getLogger() << F("  • Wi-Fi: ") << endl;
   Interface::get().getLogger() << F("    ◦ SSID: ") << _configStruct.wifi.ssid << endl;
   Interface::get().getLogger() << F("    ◦ Password not shown") << endl;
-
+  if (strcmp_P(_configStruct.wifi.ip, PSTR("")) != 0) {
+    Interface::get().getLogger() << F("    ◦ IP: ") << _configStruct.wifi.ip << endl;
+    Interface::get().getLogger() << F("    ◦ Mask: ") << _configStruct.wifi.mask << endl;
+    Interface::get().getLogger() << F("    ◦ Gateway: ") << _configStruct.wifi.gw << endl;
+  }
   Interface::get().getLogger() << F("  • MQTT: ") << endl;
   Interface::get().getLogger() << F("    ◦ Host: ") << _configStruct.mqtt.server.host << endl;
   Interface::get().getLogger() << F("    ◦ Port: ") << _configStruct.mqtt.server.port << endl;
@@ -299,4 +348,27 @@ void Config::log() const {
 
   Interface::get().getLogger() << F("  • OTA: ") << endl;
   Interface::get().getLogger() << F("    ◦ Enabled? ") << (_configStruct.ota.enabled ? F("yes") : F("no")) << endl;
+
+  if (IHomieSetting::settings.size() > 0) {
+    Interface::get().getLogger() << F("  • Custom settings: ") << endl;
+    for (IHomieSetting* iSetting : IHomieSetting::settings) {
+      Interface::get().getLogger() << F("    ◦ ");
+
+      if (iSetting->isBool()) {
+        HomieSetting<bool>* setting = static_cast<HomieSetting<bool>*>(iSetting);
+        Interface::get().getLogger() << setting->getName() << F(": ") << setting->get() << F(" (") << (setting->wasProvided() ? F("set") : F("default")) << F(")");
+      } else if (iSetting->isLong()) {
+        HomieSetting<long>* setting = static_cast<HomieSetting<long>*>(iSetting);
+        Interface::get().getLogger() << setting->getName() << F(": ") << setting->get() << F(" (") << (setting->wasProvided() ? F("set") : F("default")) << F(")");
+      } else if (iSetting->isDouble()) {
+        HomieSetting<double>* setting = static_cast<HomieSetting<double>*>(iSetting);
+        Interface::get().getLogger() << setting->getName() << F(": ") << setting->get() << F(" (") << (setting->wasProvided() ? F("set") : F("default")) << F(")");
+      } else if (iSetting->isConstChar()) {
+        HomieSetting<const char*>* setting = static_cast<HomieSetting<const char*>*>(iSetting);
+        Interface::get().getLogger() << setting->getName() << F(": ") << setting->get() << F(" (") << (setting->wasProvided() ? F("set") : F("default")) << F(")");
+      }
+
+      Interface::get().getLogger() << endl;
+    }
+  }
 }
